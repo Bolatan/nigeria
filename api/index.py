@@ -64,9 +64,14 @@ import rag
 
 
 def require_admin(token):
-    expected = os.getenv("ADMIN_TOKEN", "")
-    if not expected or not hmac.compare_digest(token.encode(), expected.encode()):
-        raise HTTPException(status_code=403, detail="Forbidden")
+    expected = os.getenv("ADMIN_TOKEN", "").strip()
+    token = token.strip()
+    if not expected:
+        raise HTTPException(status_code=403, detail="ADMIN_TOKEN is not set on this deployment. Add it in Vercel, then redeploy.")
+    if not token:
+        raise HTTPException(status_code=403, detail="Enter your ADMIN_TOKEN in the box first.")
+    if not hmac.compare_digest(token.encode(), expected.encode()):
+        raise HTTPException(status_code=403, detail="That token does not match ADMIN_TOKEN on this deployment. It must match exactly.")
 
 
 @app.post("/api/admin/check")

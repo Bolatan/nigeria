@@ -11,6 +11,7 @@ body{font:17px/1.6 Georgia,serif;max-width:32rem;margin:3rem auto;padding:0 1.25
 input,button{font:inherit;padding:.7rem;margin:.25rem 0;width:100%;box-sizing:border-box}
 #s,#c{margin-top:1rem;white-space:pre-wrap;word-break:break-word}
 #dl{display:block;margin-top:.5rem;font-weight:bold}
+#dl[hidden]{display:none}
 </style>
 </head>
 <body>
@@ -23,16 +24,18 @@ input,button{font:inherit;padding:.7rem;margin:.25rem 0;width:100%;box-sizing:bo
 <p id="s" aria-live="polite"></p>
 <a id="dl" hidden>Download index.json</a>
 <script>
+const tk = () => document.getElementById('t').value.trim();
+const why = e => /token/i.test(e.message) ? `${e.message}\nYou entered ${tk().length} characters.` : e.message;
 const c = document.getElementById('c'), k = document.getElementById('k');
 k.onclick = async () => {
   k.disabled = true; c.textContent = 'Checking…';
   try {
-    const r = await fetch('/api/admin/check', { method: 'POST', headers: { 'x-admin-token': document.getElementById('t').value } });
+    const r = await fetch('/api/admin/check', { method: 'POST', headers: { 'x-admin-token': tk() } });
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || 'Request failed');
     const list = Array.isArray(d.available_chat_models) ? d.available_chat_models.join('\n  ') : d.available_chat_models;
     c.textContent = `Chat model: ${d.chat_model}\n  ${d.chat}\nEmbedding model: ${d.embed_model}\n  ${d.embeddings}\n\nModels your key can use:\n  ${list}`;
-  } catch (e) { c.textContent = e.message; }
+  } catch (e) { c.textContent = why(e); }
   k.disabled = false;
 };
 const s = document.getElementById('s'), b = document.getElementById('b'), dl = document.getElementById('dl');
@@ -41,7 +44,7 @@ b.onclick = async () => {
   const vectors = []; let start = 0, total = 1, meta = {};
   try {
     while (start < total) {
-      const r = await fetch('/api/admin/embed?start=' + start, { method: 'POST', headers: { 'x-admin-token': document.getElementById('t').value } });
+      const r = await fetch('/api/admin/embed?start=' + start, { method: 'POST', headers: { 'x-admin-token': tk() } });
       const d = await r.json();
       if (!r.ok) throw new Error(d.detail || 'Request failed');
       vectors.push(...d.vectors); start = d.done; total = d.total; meta = d;
@@ -50,7 +53,7 @@ b.onclick = async () => {
     const blob = new Blob([JSON.stringify({ embed_model: meta.embed_model, hash: meta.hash, vectors })], { type: 'application/json' });
     dl.href = URL.createObjectURL(blob); dl.download = 'index.json'; dl.hidden = false; dl.click();
     s.textContent = `Done: ${total} passages. If the download did not start, tap the link below. Then upload index.json to the data folder of your GitHub repo.`;
-  } catch (e) { s.textContent = e.message; }
+  } catch (e) { s.textContent = why(e); }
   b.disabled = false;
 };
 </script>
