@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nigerian Constitution, in plain English</title>
+<style>
+:root{--bg:#f6f8f3;--fg:#15221a;--mut:#58675d;--green:#008751;--on:#fff;--card:#fff;--line:#d6e0d7}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1611;--fg:#e7efe9;--mut:#9ab0a1;--green:#3fbf86;--on:#06210f;--card:#15211a;--line:#26372c}}
+body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.65 Georgia,serif}
+main{max-width:40rem;margin:0 auto;padding:2.5rem 1.25rem 4rem}
+h1{font-size:1.9rem;line-height:1.2;margin:0 0 .5rem}
+.sub{color:var(--mut);margin:0 0 1.5rem}
+form{display:flex;gap:.5rem}
+input{flex:1;min-width:0;padding:.75rem;font:inherit;border:1px solid var(--line);border-radius:6px;background:var(--card);color:inherit}
+button{padding:.75rem 1.1rem;font:inherit;background:var(--green);color:var(--on);border:0;border-radius:6px;cursor:pointer}
+button:disabled{opacity:.6}
+:focus-visible{outline:2px solid var(--green);outline-offset:2px}
+#out{margin-top:1.75rem}
+#ans{white-space:pre-wrap;margin:0 0 1rem}
+details{border-top:1px solid var(--line);padding:.6rem 0;font-size:.95rem}
+summary{cursor:pointer;font-weight:bold}
+details p{color:var(--mut);white-space:pre-wrap;margin:.5rem 0 0}
+nav{display:flex;gap:.5rem;margin-bottom:2rem}
+.tab[aria-pressed=false]{background:transparent;color:var(--fg);border:1px solid var(--line)}
+#pf{flex-wrap:wrap}#pf select{flex:1 1 9rem;padding:.7rem;font:inherit;border:1px solid var(--line);border-radius:6px;background:var(--card);color:inherit}
+#pf input{flex:2 1 12rem}
+#pl{list-style:none;padding:0;margin:1.25rem 0}#pl li{border-top:1px solid var(--line);padding:.75rem 0}
+#pl li div{color:var(--mut);font-size:.95rem;margin:.15rem 0 .5rem}
+#map{height:18rem;margin-top:1rem;border:1px solid var(--line);border-radius:8px;color:var(--green);overflow:hidden}
+#sum{font-size:1.3rem;font-weight:bold;margin:.9rem 0 .5rem}
+#chips{display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.75rem}#chips button[aria-pressed=false]{background:transparent;color:var(--fg);border:1px solid var(--line)}
+#links a{color:var(--green);margin-right:1rem}
+#steps{padding-left:1.25rem;color:var(--fg)}
+</style>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+</head>
+<body>
+<main>
+  <nav><button class="tab" data-t="ask" aria-pressed="true">Ask the Constitution</button><button class="tab" data-t="pu" aria-pressed="false">Find a polling unit</button></nav>
+  <section id="ask">
+  <h1>What does the Constitution say?</h1>
+  <p class="sub">Ask in your own words. Answers come only from the 1999 Constitution of Nigeria (as amended).</p>
+  <form id="f">
+    <input id="q" maxlength="500" placeholder="Can the police detain me for more than 24 hours?" aria-label="Your question" required>
+    <button id="b">Ask</button>
+  </form>
+  <div id="out" aria-live="polite"></div>
+  </section>
+  <section id="pu" hidden>
+    <h1>Find your polling unit</h1>
+    <p class="sub">Search by area or find the ones closest to you, then get directions.</p>
+    <form id="pf">
+      <select id="st" aria-label="State"><option value="">State</option></select>
+      <select id="lg" aria-label="Local government area"><option value="">LGA</option></select>
+      <input id="pq" placeholder="Ward or polling unit name" aria-label="Ward or polling unit name">
+      <button>Search</button><button type="button" id="near">Near me</button>
+    </form>
+    <ul id="pl"></ul>
+    <div id="dir" hidden>
+      <div id="sum" aria-live="polite"></div>
+      <div id="chips"><button data-m="driving" aria-pressed="true">Drive</button><button data-m="walking" aria-pressed="false">Walk</button></div>
+      <p id="links"></p>
+      <div id="map" role="img" aria-label="Map of the route"></div>
+      <ol id="steps"></ol>
+    </div>
+  </section>
+</main>
+<script>
+const f = document.getElementById('f'), q = document.getElementById('q'),
+      b = document.getElementById('b'), out = document.getElementById('out');
+const el = (tag, text, id) => { const n = document.createElement(tag); n.textContent = text; if (id) n.id = id; return n; };
+f.onsubmit = async (e) => {
+  e.preventDefault();
+  b.disabled = true;
+  out.replaceChildren(el('p', 'Reading the Constitution…', 'ans'));
+  try {
+    const r = await fetch('/api/ask', { method: 'POST', headers: {'Content-Type': 'application/json'},
+                                        body: JSON.stringify({ question: q.value.trim() }) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Something went wrong. Please try again.');
+    out.replaceChildren(el('p', d.answer, 'ans'));
+    d.sources.forEach(s => {
+      const det = document.createElement('details');
+      det.append(el('summary', s.chapter ? `${s.ref} (${s.chapter})` : s.ref), el('p', s.text));
+      out.append(det);
+    });
+  } catch (err) {
+    out.replaceChildren(el('p', err.message, 'ans'));
+  } finally { b.disabled = false; }
+};
+
+// ---- Polling units and directions ----
+const $ = id => document.getElementById(id);
+const tabs = document.querySelectorAll('.tab');
+tabs.forEach(t => t.onclick = () => {
+  tabs.forEach(x => x.setAttribute('aria-pressed', String(x === t)));
+  $('ask').hidden = t.dataset.t !== 'ask'; $('pu').hidden = t.dataset.t !== 'pu';
+});
+const get = async u => { const r = await fetch(u); const d = await r.json(); if (!r.ok) throw new Error(d.detail || 'Request failed'); return d; };
+const here = () => new Promise((ok, no) => navigator.geolocation
+  ? navigator.geolocation.getCurrentPosition(p => ok(p.coords), () => no(new Error('Allow location access to get directions.')))
+  : no(new Error('Location is not available on this device.')));
+const st = $('st'), lg = $('lg'), list = $('pl');
+let areas = {}, dest = null, mode = 'driving', map = null, layer = null;
+get('/api/pu/areas').then(a => { areas = a; Object.keys(a).forEach(s => st.add(new Option(s, s))); }).catch(() => {});
+st.onchange = () => { lg.length = 1; (areas[st.value] || []).forEach(l => lg.add(new Option(l, l))); };
+const say = m => list.replaceChildren(el('li', m));
+function show(rows) {
+  if (!rows.length) return say('No polling units found.');
+  list.replaceChildren(...rows.map(u => {
+    const li = document.createElement('li');
+    li.append(el('strong', u.name), el('div', [u.code, u.ward, u.lga, u.state].filter(Boolean).join(', ') + (u.km != null ? ` · ${u.km} km away` : '')));
+    if (u.lat != null) { if (u.shared > 1) li.append(el('div', `Approximate location (${u.shared} units share this point).`)); const g = el('button', 'Directions'); g.type = 'button'; g.onclick = () => go(u); li.append(g); }
+    else li.append(el('div', 'No map location on record for this unit.'));
+    return li;
+  }));
+}
+$('pf').onsubmit = async e => {
+  e.preventDefault();
+  try { show(await get('/api/pu/search?' + new URLSearchParams({ state: st.value, lga: lg.value, q: $('pq').value.trim() }))); }
+  catch (err) { say(err.message); }
+};
+$('near').onclick = async () => {
+  try { const c = await here(); show(await get(`/api/pu/nearby?lat=${c.latitude}&lon=${c.longitude}`)); }
+  catch (err) { say(err.message); }
+};
+function draw(a, b, path) {
+  const box = $('map');
+  if (window.L) {  // real map
+    if (!map) { map = L.map(box); L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors' }).addTo(map); }
+    if (layer) layer.remove();
+    const line = L.polyline(path, { weight: 5 });
+    layer = L.layerGroup([line, L.circleMarker(a, { radius: 7 }), L.circleMarker(b, { radius: 9, fillOpacity: 1 })]).addTo(map);
+    map.fitBounds(line.getBounds(), { padding: [30, 30] });
+  } else {  // simple schematic if the map library can't load
+    const ys = path.map(p => p[0]), xs = path.map(p => p[1]), w = 320, h = 200;
+    const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+    const X = x => 14 + (x - x0) / ((x1 - x0) || 1) * (w - 28), Y = y => h - 14 - (y - y0) / ((y1 - y0) || 1) * (h - 28);
+    const pts = path.map(p => X(p[1]).toFixed(1) + ',' + Y(p[0]).toFixed(1));
+    const [sx, sy] = pts[0].split(','), [ex, ey] = pts[pts.length - 1].split(',');
+    box.innerHTML = `<svg viewBox="0 0 ${w} ${h}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet"><polyline points="${pts.join(' ')}" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/><circle cx="${sx}" cy="${sy}" r="6" fill="currentColor"/><circle cx="${ex}" cy="${ey}" r="9" fill="currentColor"/></svg>`;
+  }
+}
+async function go(u, m = mode) {
+  dest = u; mode = m; $('dir').hidden = false; $('sum').textContent = 'Finding the best route…';
+  document.querySelectorAll('#chips button').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.m === m)));
+  try {
+    const c = await here();
+    const r = await get(`/api/route?from_lat=${c.latitude}&from_lon=${c.longitude}&to_lat=${u.lat}&to_lon=${u.lon}&mode=${m}`);
+    $('sum').textContent = `${r.minutes} min · ${r.km} km to ${u.name}${u.shared > 1 ? ' (approximate spot)' : ''}`;
+    const a = (href, t) => { const n = el('a', t); n.href = href; n.target = '_blank'; n.rel = 'noopener'; return n; };
+    $('links').replaceChildren(a(r.google, 'Open in Google Maps'), a(r.uber, 'Request an Uber'));
+    $('steps').replaceChildren(...r.steps.map(s => el('li', s.m ? `${s.text} (${s.m} m)` : s.text)));
+    draw([c.latitude, c.longitude], [u.lat, u.lon], r.path);
+  } catch (err) { $('sum').textContent = err.message; }
+}
+document.querySelectorAll('#chips button').forEach(x => x.onclick = () => dest && go(dest, x.dataset.m));
+</script>
+</body>
+</html>
