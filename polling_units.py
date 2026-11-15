@@ -4,7 +4,9 @@ import csv
 import math
 import os
 import sqlite3
+import statistics
 import sys
+from collections import defaultdict
 
 DB = os.getenv("PU_DB", os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "polling_units.db"))
 ALIASES = {
@@ -27,6 +29,26 @@ def _num(v, lo, hi):  # keep only coordinates that fall inside Nigeria
         return None
 
 
+def _pt(lat, lon):  # a point needs BOTH coordinates, both inside Nigeria
+    la, lo = _num(lat, 3.5, 14.0), _num(lon, 2.5, 15.0)
+    return (la, lo) if la is not None and lo is not None else (None, None)
+
+
+def _drop_outliers(con):
+    """Geocoding put many units in the wrong place. Drop a unit's point if it is far from the rest of its own LGA."""
+    groups = defaultdict(list)
+    for rid, state, lga, lat, lon in con.execute("SELECT rowid, state, lga, lat, lon FROM pu WHERE lat IS NOT NULL"):
+        groups[(state, lga)].append((rid, lat, lon))
+    bad = []
+    for g in groups.values():
+        mlat, mlon = statistics.median(x[1] for x in g), statistics.median(x[2] for x in g)
+        dist = [haversine(x[1], x[2], mlat, mlon) for x in g]
+        limit = max(30, 5 * statistics.median(dist))  # km
+        bad += [(x[0],) for x, d in zip(g, dist) if d > limit]
+    con.executemany("UPDATE pu SET lat = NULL, lon = NULL WHERE rowid = ?", bad)
+    return len(bad)
+
+
 def build_db(csv_path, db_path=DB):
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     if os.path.exists(db_path):
@@ -44,8 +66,9 @@ def build_db(csv_path, db_path=DB):
         con.executemany(
             "INSERT INTO pu(code, name, state, lga, ward, lat, lon) VALUES (?,?,?,?,?,?,?)",
             ((g(r, "code"), g(r, "name"), g(r, "state"), g(r, "lga"), g(r, "ward"),
-              _num(g(r, "lat"), 3.5, 14.0), _num(g(r, "lon"), 2.5, 15.0)) for r in rd),
+              *_pt(g(r, "lat"), g(r, "lon"))) for r in rd),
         )
+    dropped = _drop_outliers(con)
     con.execute("CREATE INDEX i_area ON pu(state, lga, ward)")
     con.execute("CREATE INDEX i_geo ON pu(lat, lon)")
     # shared = how many units sit on exactly the same point. >1 means the location is only approximate.
@@ -53,7 +76,7 @@ def build_db(csv_path, db_path=DB):
     con.commit()
     n, located = con.execute("SELECT COUNT(*), COUNT(lat) FROM pu").fetchone()
     con.close()
-    return n, located
+    return n, located, dropped
 
 
 def _con_ro():
@@ -73,6 +96,11 @@ def areas():
     for s, l in _con_ro().execute("SELECT DISTINCT state, lga FROM pu ORDER BY 1, 2"):
         out.setdefault(s, []).append(l)
     return out
+
+
+def unmapped():
+    """States where (almost) no unit has a map point."""
+    return [r[0] for r in _con_ro().execute("SELECT state FROM pu GROUP BY state HAVING COUNT(lat) * 10 < COUNT(*) ORDER BY 1")]
 
 
 def search(q="", state="", lga="", ward="", limit=25):
@@ -104,5 +132,5 @@ def nearby(lat, lon, km=5, limit=10):
 
 
 if __name__ == "__main__":
-    total, located = build_db(sys.argv[1])
-    print(f"{total} polling units, {located} with coordinates -> {DB}")
+    total, located, dropped = build_db(sys.argv[1])
+    print(f"{total} polling units, {located} with usable coordinates ({dropped} suspect points removed) -> {DB}")

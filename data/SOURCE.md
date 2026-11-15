@@ -6,3 +6,6 @@ Constitution text (data/constitution.md): https://github.com/mykeels/nigerian-co
 KNOWN LIMITS: pre-2018 text. It lacks the Fourth (2017/2018) and Fifth (2023) Alterations, e.g. Section 131 still says
 the President must be 40 (now 35). Section 168 is missing, and the Schedules are not included.
 For the current text, download the 2023 PDF (constituteproject.org or FAOLEX) and run: python ingest.py <file.pdf>
+
+Polling unit map points: 7,432 suspect points (far from the rest of their own LGA) are removed when the database is built.
+FCT, Rivers, Plateau, Sokoto, Taraba, Yobe and Zamfara have NO coordinates in the source data, so Near me and Directions cannot work there.

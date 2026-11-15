@@ -99,9 +99,20 @@ tabs.forEach(t => t.onclick = () => {
   $('ask').hidden = t.dataset.t !== 'ask'; $('pu').hidden = t.dataset.t !== 'pu';
 });
 const get = async u => { const r = await fetch(u); const d = await r.json(); if (!r.ok) throw new Error(d.detail || 'Request failed'); return d; };
-const here = () => new Promise((ok, no) => navigator.geolocation
-  ? navigator.geolocation.getCurrentPosition(p => ok(p.coords), () => no(new Error('Allow location access to get directions.')))
-  : no(new Error('Location is not available on this device.')));
+const locate = () => new Promise((ok, no) => {  // keep listening until the fix is good (<=100 m) or 12 s pass
+  if (!navigator.geolocation) return no(new Error('Location is not available on this device.'));
+  let best = null, id, timer;
+  const stop = () => { navigator.geolocation.clearWatch(id); clearTimeout(timer); };
+  const finish = () => { stop(); best ? ok(best) : no(new Error('Could not get a location fix. Turn on GPS and try again.')); };
+  id = navigator.geolocation.watchPosition(
+    p => { if (!best || p.coords.accuracy < best.accuracy) best = p.coords; if (best.accuracy <= 100) finish(); },
+    e => best ? finish() : (stop(), no(new Error(e.code === 1 ? 'Allow location access, with precise location turned on, to continue.' : 'Could not get a location fix. Turn on GPS and try again.'))),
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+  timer = setTimeout(finish, 12000);
+});
+let fix = null, unmapped = [];
+const here = async () => { if (!fix || Date.now() - fix.t > 60000) fix = { c: await locate(), t: Date.now() }; return fix.c; };
+get('/api/pu/unmapped').then(u => unmapped = u).catch(() => {});
 const st = $('st'), lg = $('lg'), list = $('pl');
 let areas = {}, dest = null, mode = 'driving', map = null, layer = null;
 get('/api/pu/areas').then(a => { areas = a; Object.keys(a).forEach(s => st.add(new Option(s, s))); }).catch(() => {});
@@ -123,8 +134,16 @@ $('pf').onsubmit = async e => {
   catch (err) { say(err.message); }
 };
 $('near').onclick = async () => {
-  try { const c = await here(); show(await get(`/api/pu/nearby?lat=${c.latitude}&lon=${c.longitude}`)); }
-  catch (err) { say(err.message); }
+  say('Finding your location…');
+  try {
+    const c = await here(), acc = Math.round(c.accuracy), q = `lat=${c.latitude}&lon=${c.longitude}`;
+    let rows = await get(`/api/pu/nearby?${q}`), wide = false;
+    if (!rows.length) { rows = await get(`/api/pu/nearby?${q}&km=25`); wide = true; }
+    if (!rows.length) return say('No mapped polling units near you.' + (unmapped.length ? ` These states have no map locations in the data: ${unmapped.join(', ')}. Search by state and LGA instead.` : ''));
+    show(rows);
+    const note = acc >= 1000 ? `Your location is only accurate to about ${(acc / 1000).toFixed(1)} km, so results may be off. Turn on GPS or try on your phone.` : `Your location is accurate to about ${acc} m.`;
+    list.prepend(el('li', note + (wide ? ' Nothing within 5 km, so these are the closest within 25 km.' : '')));
+  } catch (err) { say(err.message); }
 };
 function draw(a, b, path) {
   const box = $('map');

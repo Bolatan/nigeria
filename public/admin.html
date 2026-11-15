@@ -16,7 +16,7 @@ input,button{font:inherit;padding:.7rem;margin:.25rem 0;width:100%;box-sizing:bo
 </head>
 <body>
 <h1>Set up and build the search index</h1>
-<p>Run this once. It embeds the Constitution and gives you one file, <code>index.json</code>. Upload that file to the <code>data</code> folder of your GitHub repo, and Vercel will redeploy with search working.</p>
+<p><strong>Building takes about 6 minutes on the free tier. Keep this tab open and your screen on.</strong> Run this once. It embeds the Constitution and gives you one file, <code>index.json</code>. Upload that file to the <code>data</code> folder of your GitHub repo, and Vercel will redeploy with search working.</p>
 <input id="t" type="password" placeholder="ADMIN_TOKEN" aria-label="Admin token" autocomplete="off">
 <button id="k">1. Check settings (models and keys)</button>
 <pre id="c" aria-live="polite"></pre>
@@ -39,20 +39,38 @@ k.onclick = async () => {
   k.disabled = false;
 };
 const s = document.getElementById('s'), b = document.getElementById('b'), dl = document.getElementById('dl');
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+// Embeds the passages a few at a time, pausing between batches and waiting out rate limits.
+async function buildAll(call, wait, say) {
+  const vectors = []; let start = 0, total = 1, meta = {}, pause = 12000, tries = 0;
+  while (start < total) {
+    const { status, data } = await call(start);
+    if (status === 429) {
+      if (++tries > 12) throw new Error('Still rate limited after many tries. Wait a few minutes, check your limits in Google AI Studio, then try again.');
+      pause = Math.min(pause * 1.5, 40000);
+      say(`Google is rate limiting us. Waiting 60 seconds, then continuing… (${vectors.length} of ${total} done)`);
+      await wait(60000); continue;
+    }
+    if (status !== 200) throw new Error(data.detail || 'Request failed');
+    tries = 0; vectors.push(...data.vectors); start = data.done; total = data.total; meta = data;
+    say(`Embedded ${start} of ${total} passages…`);
+    if (start < total) await wait(pause);
+  }
+  return { vectors, meta };
+}
 b.onclick = async () => {
   b.disabled = true; dl.hidden = true;
-  const vectors = []; let start = 0, total = 1, meta = {};
   try {
-    while (start < total) {
-      const r = await fetch('/api/admin/embed?start=' + start, { method: 'POST', headers: { 'x-admin-token': tk() } });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.detail || 'Request failed');
-      vectors.push(...d.vectors); start = d.done; total = d.total; meta = d;
-      s.textContent = `Embedded ${start} of ${total} passages…`;
-    }
+    const call = async start => {
+      try {
+        const r = await fetch(`/api/admin/embed?start=${start}&size=16`, { method: 'POST', headers: { 'x-admin-token': tk() } });
+        return { status: r.status, data: await r.json() };
+      } catch (e) { return { status: 0, data: { detail: 'Network or server error. Check your connection and try again.' } }; }
+    };
+    const { vectors, meta } = await buildAll(call, sleep, m => { s.textContent = m; });
     const blob = new Blob([JSON.stringify({ embed_model: meta.embed_model, hash: meta.hash, vectors })], { type: 'application/json' });
     dl.href = URL.createObjectURL(blob); dl.download = 'index.json'; dl.hidden = false; dl.click();
-    s.textContent = `Done: ${total} passages. If the download did not start, tap the link below. Then upload index.json to the data folder of your GitHub repo.`;
+    s.textContent = `Done: ${vectors.length} passages. If the download did not start, tap the link below. Then upload index.json to the data folder of your GitHub repo.`;
   } catch (e) { s.textContent = why(e); }
   b.disabled = false;
 };

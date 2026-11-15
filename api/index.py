@@ -34,6 +34,11 @@ def pu_areas():
     return pu.areas()
 
 
+@app.get("/api/pu/unmapped")
+def pu_unmapped():
+    return pu.unmapped()
+
+
 @app.get("/api/pu/search")
 def pu_search(q: str = "", state: str = "", lga: str = "", ward: str = ""):
     return pu.search(q, state, lga, ward)
@@ -57,6 +62,8 @@ def api_route(from_lat: float, from_lon: float, to_lat: float, to_lon: float, mo
 
 # ---- One-time admin: build the search index from the browser (needs ADMIN_TOKEN) ----
 import hmac
+
+from openai import RateLimitError
 
 from fastapi import Header
 
@@ -96,11 +103,13 @@ def admin_check(x_admin_token: str = Header("")):
 
 
 @app.post("/api/admin/embed")
-def admin_embed(start: int = 0, size: int = 48, x_admin_token: str = Header("")):
+def admin_embed(start: int = 0, size: int = 16, x_admin_token: str = Header("")):
     require_admin(x_admin_token)
     total, a, n = len(rag.chunks()[0]), max(start, 0), min(max(size, 1), 100)
     try:
         vectors = rag.embed_chunks(a, n)
+    except RateLimitError:
+        raise HTTPException(status_code=429, detail="Rate limited by the embedding service.")
     except Exception as e:
         print("embed failed:", repr(e))
         raise HTTPException(status_code=502, detail=f"Embedding failed ({type(e).__name__}). See the Vercel logs.")
