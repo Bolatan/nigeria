@@ -23,13 +23,17 @@ summary{cursor:pointer;font-weight:bold}
 details p{color:var(--mut);white-space:pre-wrap;margin:.5rem 0 0}
 nav{display:flex;gap:.5rem;margin-bottom:2rem}
 .tab[aria-pressed=false]{background:transparent;color:var(--fg);border:1px solid var(--line)}
-#pf{flex-wrap:wrap}#pf select{flex:1 1 9rem;padding:.7rem;font:inherit;border:1px solid var(--line);border-radius:6px;background:var(--card);color:inherit}
+#pf{flex-wrap:wrap}
+#pf select{flex:1 1 9rem;padding:.7rem;font:inherit;border:1px solid var(--line);border-radius:6px;background:var(--card);color:inherit}
 #pf input{flex:2 1 12rem}
-#pl{list-style:none;padding:0;margin:1.25rem 0}#pl li{border-top:1px solid var(--line);padding:.75rem 0}
+#pl{list-style:none;padding:0;margin:1.25rem 0}
+#pl li{border-top:1px solid var(--line);padding:.75rem 0}
 #pl li div{color:var(--mut);font-size:.95rem;margin:.15rem 0 .5rem}
+#dir{margin:.75rem 0;padding:.75rem;border:1px solid var(--line);border-radius:8px}
 #map{height:18rem;margin-top:1rem;border:1px solid var(--line);border-radius:8px;color:var(--green);overflow:hidden}
-#sum{font-size:1.3rem;font-weight:bold;margin:.9rem 0 .5rem}
-#chips{display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.75rem}#chips button[aria-pressed=false]{background:transparent;color:var(--fg);border:1px solid var(--line)}
+#sum{font-size:1.3rem;font-weight:bold;margin:.25rem 0 .5rem}
+#chips{display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.75rem}
+#chips button[aria-pressed=false]{background:transparent;color:var(--fg);border:1px solid var(--line)}
 #links a{color:var(--green);margin-right:1rem}
 #steps{padding-left:1.25rem;color:var(--fg)}
 </style>
@@ -40,13 +44,13 @@ nav{display:flex;gap:.5rem;margin-bottom:2rem}
 <main>
   <nav><button class="tab" data-t="ask" aria-pressed="true">Ask the Constitution</button><button class="tab" data-t="pu" aria-pressed="false">Find a polling unit</button></nav>
   <section id="ask">
-  <h1>What does the Constitution say?</h1>
-  <p class="sub">Ask in your own words. Answers come only from the 1999 Constitution of Nigeria (as amended).</p>
-  <form id="f">
-    <input id="q" maxlength="500" placeholder="Can the police detain me for more than 24 hours?" aria-label="Your question" required>
-    <button id="b">Ask</button>
-  </form>
-  <div id="out" aria-live="polite"></div>
+    <h1>What does the Constitution say?</h1>
+    <p class="sub">Ask in your own words. Answers come only from the 1999 Constitution of Nigeria (as amended).</p>
+    <form id="f">
+      <input id="q" maxlength="500" placeholder="Can the police detain me for more than 24 hours?" aria-label="Your question" required>
+      <button id="b">Ask</button>
+    </form>
+    <div id="out" aria-live="polite"></div>
   </section>
   <section id="pu" hidden>
     <h1>Find your polling unit</h1>
@@ -68,16 +72,15 @@ nav{display:flex;gap:.5rem;margin-bottom:2rem}
   </section>
 </main>
 <script>
-const f = document.getElementById('f'), q = document.getElementById('q'),
-      b = document.getElementById('b'), out = document.getElementById('out');
+const $ = id => document.getElementById(id);
+const f = $('f'), q = $('q'), askButton = $('b'), out = $('out');
 const el = (tag, text, id) => { const n = document.createElement(tag); n.textContent = text; if (id) n.id = id; return n; };
-f.onsubmit = async (e) => {
+f.onsubmit = async e => {
   e.preventDefault();
-  b.disabled = true;
+  askButton.disabled = true;
   out.replaceChildren(el('p', 'Reading the Constitution…', 'ans'));
   try {
-    const r = await fetch('/api/ask', { method: 'POST', headers: {'Content-Type': 'application/json'},
-                                        body: JSON.stringify({ question: q.value.trim() }) });
+    const r = await fetch('/api/ask', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ question: q.value.trim() }) });
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || 'Something went wrong. Please try again.');
     out.replaceChildren(el('p', d.answer, 'ans'));
@@ -88,18 +91,18 @@ f.onsubmit = async (e) => {
     });
   } catch (err) {
     out.replaceChildren(el('p', err.message, 'ans'));
-  } finally { b.disabled = false; }
+  } finally { askButton.disabled = false; }
 };
 
 // ---- Polling units and directions ----
-const $ = id => document.getElementById(id);
 const tabs = document.querySelectorAll('.tab');
 tabs.forEach(t => t.onclick = () => {
   tabs.forEach(x => x.setAttribute('aria-pressed', String(x === t)));
-  $('ask').hidden = t.dataset.t !== 'ask'; $('pu').hidden = t.dataset.t !== 'pu';
+  $('ask').hidden = t.dataset.t !== 'ask';
+  $('pu').hidden = t.dataset.t !== 'pu';
 });
 const get = async u => { const r = await fetch(u); const d = await r.json(); if (!r.ok) throw new Error(d.detail || 'Request failed'); return d; };
-const locate = () => new Promise((ok, no) => {  // keep listening until the fix is good (<=100 m) or 12 s pass
+const locate = () => new Promise((ok, no) => {
   if (!navigator.geolocation) return no(new Error('Location is not available on this device.'));
   let best = null, id, timer;
   const stop = () => { navigator.geolocation.clearWatch(id); clearTimeout(timer); };
@@ -107,24 +110,34 @@ const locate = () => new Promise((ok, no) => {  // keep listening until the fix 
   id = navigator.geolocation.watchPosition(
     p => { if (!best || p.coords.accuracy < best.accuracy) best = p.coords; if (best.accuracy <= 100) finish(); },
     e => best ? finish() : (stop(), no(new Error(e.code === 1 ? 'Allow location access, with precise location turned on, to continue.' : 'Could not get a location fix. Turn on GPS and try again.'))),
-    { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
+  );
   timer = setTimeout(finish, 12000);
 });
 let fix = null, unmapped = [];
 const here = async () => { if (!fix || Date.now() - fix.t > 60000) fix = { c: await locate(), t: Date.now() }; return fix.c; };
 get('/api/pu/unmapped').then(u => unmapped = u).catch(() => {});
-const st = $('st'), lg = $('lg'), list = $('pl');
-let areas = {}, dest = null, mode = 'driving', map = null, layer = null;
+const st = $('st'), lg = $('lg'), list = $('pl'), dir = $('dir');
+let areas = {}, dest = null, mode = 'driving', map = null, layer = null, activeLocation = null;
 get('/api/pu/areas').then(a => { areas = a; Object.keys(a).forEach(s => st.add(new Option(s, s))); }).catch(() => {});
 st.onchange = () => { lg.length = 1; (areas[st.value] || []).forEach(l => lg.add(new Option(l, l))); };
-const say = m => list.replaceChildren(el('li', m));
+const say = message => { dir.hidden = true; activeLocation = null; list.replaceChildren(el('li', message)); };
 function show(rows) {
+  dir.hidden = true;
+  activeLocation = null;
   if (!rows.length) return say('No polling units found.');
   list.replaceChildren(...rows.map(u => {
     const li = document.createElement('li');
     li.append(el('strong', u.name), el('div', [u.code, u.ward, u.lga, u.state].filter(Boolean).join(', ') + (u.km != null ? ` · ${u.km} km away` : '')));
-    if (u.lat != null) { if (u.shared > 1) li.append(el('div', `Approximate location (${u.shared} units share this point).`)); const g = el('button', 'Directions'); g.type = 'button'; g.onclick = () => go(u); li.append(g); }
-    else li.append(el('div', 'No map location on record for this unit.'));
+    if (u.lat != null) {
+      if (u.shared > 1) li.append(el('div', `Approximate location (${u.shared} units share this point).`));
+      const button = el('button', 'Directions');
+      button.type = 'button';
+      button.onclick = () => { activeLocation = li; go(u); };
+      li.append(button);
+    } else {
+      li.append(el('div', 'No map location on record for this unit.'));
+    }
     return li;
   }));
 }
@@ -136,9 +149,9 @@ $('pf').onsubmit = async e => {
 $('near').onclick = async () => {
   say('Finding your location…');
   try {
-    const c = await here(), acc = Math.round(c.accuracy), q = `lat=${c.latitude}&lon=${c.longitude}`;
-    let rows = await get(`/api/pu/nearby?${q}`), wide = false;
-    if (!rows.length) { rows = await get(`/api/pu/nearby?${q}&km=25`); wide = true; }
+    const c = await here(), acc = Math.round(c.accuracy), query = `lat=${c.latitude}&lon=${c.longitude}`;
+    let rows = await get(`/api/pu/nearby?${query}`), wide = false;
+    if (!rows.length) { rows = await get(`/api/pu/nearby?${query}&km=25`); wide = true; }
     if (!rows.length) return say('No mapped polling units near you.' + (unmapped.length ? ` These states have no map locations in the data: ${unmapped.join(', ')}. Search by state and LGA instead.` : ''));
     show(rows);
     const note = acc >= 1000 ? `Your location is only accurate to about ${(acc / 1000).toFixed(1)} km, so results may be off. Turn on GPS or try on your phone.` : `Your location is accurate to about ${acc} m.`;
@@ -147,13 +160,13 @@ $('near').onclick = async () => {
 };
 function draw(a, b, path) {
   const box = $('map');
-  if (window.L) {  // real map
+  if (window.L) {
     if (!map) { map = L.map(box); L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors' }).addTo(map); }
     if (layer) layer.remove();
     const line = L.polyline(path, { weight: 5 });
     layer = L.layerGroup([line, L.circleMarker(a, { radius: 7 }), L.circleMarker(b, { radius: 9, fillOpacity: 1 })]).addTo(map);
     map.fitBounds(line.getBounds(), { padding: [30, 30] });
-  } else {  // simple schematic if the map library can't load
+  } else {
     const ys = path.map(p => p[0]), xs = path.map(p => p[1]), w = 320, h = 200;
     const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
     const X = x => 14 + (x - x0) / ((x1 - x0) || 1) * (w - 28), Y = y => h - 14 - (y - y0) / ((y1 - y0) || 1) * (h - 28);
@@ -163,14 +176,16 @@ function draw(a, b, path) {
   }
 }
 async function go(u, m = mode) {
-  dest = u; mode = m; $('dir').hidden = false; $('sum').textContent = 'Finding the best route…';
+  dest = u; mode = m; dir.hidden = false; $('sum').textContent = 'Finding the best route…';
+  // Keep the directions panel directly below the selected location on both mobile and desktop.
+  if (activeLocation) activeLocation.append(dir);
   document.querySelectorAll('#chips button').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.m === m)));
   try {
     const c = await here();
     const r = await get(`/api/route?from_lat=${c.latitude}&from_lon=${c.longitude}&to_lat=${u.lat}&to_lon=${u.lon}&mode=${m}`);
     $('sum').textContent = `${r.minutes} min · ${r.km} km to ${u.name}${u.shared > 1 ? ' (approximate spot)' : ''}`;
-    const a = (href, t) => { const n = el('a', t); n.href = href; n.target = '_blank'; n.rel = 'noopener'; return n; };
-    $('links').replaceChildren(a(r.google, 'Open in Google Maps'), a(r.uber, 'Request an Uber'));
+    const a = (href, text) => { const n = el('a', text); n.href = href; n.target = '_blank'; n.rel = 'noopener'; return n; };
+    $('links').replaceChildren(a(r.google, 'Open in Google Maps'));
     $('steps').replaceChildren(...r.steps.map(s => el('li', s.m ? `${s.text} (${s.m} m)` : s.text)));
     draw([c.latitude, c.longitude], [u.lat, u.lon], r.path);
   } catch (err) { $('sum').textContent = err.message; }
