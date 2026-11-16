@@ -18,7 +18,7 @@ def step_text(s):
         return "You have arrived at the polling unit"
     if kind == "depart":
         return f"Start{' on ' + road if road else ''}"
-    if kind == "roundabout" or kind == "rotary":
+    if kind in ("roundabout", "rotary"):
         return f"Take the roundabout{onto}"
     if mod == "straight" or kind in ("new name", "continue"):
         return f"Continue straight{onto}"
@@ -27,11 +27,7 @@ def step_text(s):
 
 def links(lat, lon, mode):
     travel = "walking" if mode == "walking" else "driving"
-    return {
-        "google": f"https://www.google.com/maps/dir/?api=1&destination={lat},{lon}&travelmode={travel}",
-        "uber": ("https://m.uber.com/ul/?action=setPickup&pickup=my_location"
-                 f"&dropoff[latitude]={lat}&dropoff[longitude]={lon}&dropoff[nickname]=Polling%20unit"),
-    }
+    return {"google": f"https://www.google.com/maps/dir/?api=1&destination={lat},{lon}&travelmode={travel}"}
 
 
 def route(from_lat, from_lon, to_lat, to_lon, mode="driving"):
