@@ -40,19 +40,28 @@ k.onclick = async () => {
 };
 const s = document.getElementById('s'), b = document.getElementById('b'), dl = document.getElementById('dl');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-// Embeds the passages a few at a time, pausing between batches and waiting out rate limits.
-async function buildAll(call, wait, say) {
-  const vectors = []; let start = 0, total = 1, meta = {}, pause = 12000, tries = 0;
+// Progress is saved in this browser (IndexedDB), so an interrupted build resumes instead of starting over.
+const idb = () => new Promise((ok, no) => { const r = indexedDB.open('ng-index', 1); r.onupgradeneeded = () => r.result.createObjectStore('kv'); r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); });
+const kv = async (mode, fn) => { const d = await idb(); return new Promise((ok, no) => { const t = d.transaction('kv', mode), q = fn(t.objectStore('kv')); t.oncomplete = () => ok(q.result); t.onerror = () => no(t.error); }); };
+const loadProgress = () => kv('readonly', st => st.get('progress')).catch(() => null);
+const saveProgress = p => kv('readwrite', st => st.put(p, 'progress')).catch(() => {});
+
+// Embeds the passages a few at a time, pausing between batches, waiting out rate limits, and saving progress.
+async function buildAll(call, wait, say, saved, save) {
+  let vectors = saved ? saved.vectors.slice() : [], start = vectors.length, total = Infinity, meta = {}, pause = 12000, tries = 0;
+  if (saved) say(`Resuming: ${start} passages were already done.`);
   while (start < total) {
     const { status, data } = await call(start);
     if (status === 429) {
-      if (++tries > 12) throw new Error('Still rate limited after many tries. Wait a few minutes, check your limits in Google AI Studio, then try again.');
+      if (++tries > 12) throw new Error('Still rate limited after many tries. Your progress is saved. Wait a while (or check your limits in Google AI Studio), then click the button again to continue.');
       pause = Math.min(pause * 1.5, 40000);
-      say(`Google is rate limiting us. Waiting 60 seconds, then continuing… (${vectors.length} of ${total} done)`);
+      say(`Google is rate limiting us. Waiting 60 seconds, then continuing… (${vectors.length} done and saved)`);
       await wait(60000); continue;
     }
-    if (status !== 200) throw new Error(data.detail || 'Request failed');
-    tries = 0; vectors.push(...data.vectors); start = data.done; total = data.total; meta = data;
+    if (status !== 200) throw new Error((data.detail || 'Request failed') + (vectors.length ? ` Your progress (${vectors.length} passages) is saved; click the button again to continue.` : ''));
+    if (saved && (data.hash !== saved.hash || data.embed_model !== saved.embed_model)) { saved = null; vectors = []; start = 0; say('Saved progress is out of date. Starting over…'); continue; }
+    saved = null; tries = 0; vectors.push(...data.vectors); start = data.done; total = data.total; meta = data;
+    await save({ embed_model: data.embed_model, hash: data.hash, vectors });
     say(`Embedded ${start} of ${total} passages…`);
     if (start < total) await wait(pause);
   }
@@ -65,9 +74,9 @@ b.onclick = async () => {
       try {
         const r = await fetch(`/api/admin/embed?start=${start}&size=16`, { method: 'POST', headers: { 'x-admin-token': tk() } });
         return { status: r.status, data: await r.json() };
-      } catch (e) { return { status: 0, data: { detail: 'Network or server error. Check your connection and try again.' } }; }
+      } catch (e) { return { status: 0, data: { detail: 'Network or server error.' } }; }
     };
-    const { vectors, meta } = await buildAll(call, sleep, m => { s.textContent = m; });
+    const { vectors, meta } = await buildAll(call, sleep, m => { s.textContent = m; }, await loadProgress(), saveProgress);
     const blob = new Blob([JSON.stringify({ embed_model: meta.embed_model, hash: meta.hash, vectors })], { type: 'application/json' });
     dl.href = URL.createObjectURL(blob); dl.download = 'index.json'; dl.hidden = false; dl.click();
     s.textContent = `Done: ${vectors.length} passages. If the download did not start, tap the link below. Then upload index.json to the data folder of your GitHub repo.`;
